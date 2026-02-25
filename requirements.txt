@@ -1,4 +1,4 @@
+pinecone
 Flask
 Flask-Cors
-pinecone-client
 openai
