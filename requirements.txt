@@ -2,3 +2,4 @@ pinecone
 Flask
 Flask-Cors
 openai
+gunicorn
