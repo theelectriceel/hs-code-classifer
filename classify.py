@@ -121,7 +121,11 @@ def get_embedding(description: str):
 
 
 # Allow calls from your frontend
-CORS(app, origins=["https://easyshipai.vercel.app/"], methods=["POST", "OPTIONS"])
+CORS(app,
+     resources={r"/*": {"origins": "https://easyshipai.vercel.app"}},
+     supports_credentials=True,
+     allow_headers=["Content-Type"],
+     methods=["GET", "POST", "OPTIONS"])
 
 # Health check endpoint
 @app.route("/", methods=["GET"])
