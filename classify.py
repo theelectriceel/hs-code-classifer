@@ -1,15 +1,21 @@
+# api/classify.py
+    # app.py
 from flask import Flask, request, jsonify
-from flask_cors import CORS
-from pinecone import Pinecone
-from openai import OpenAI
+from flask_cors import CORS# 
 import re
 import time
+from openai import OpenAI
+from pinecone import Pinecone
+
 
 app = Flask(__name__)
-CORS(app)
 
-# API Keys
-API_KEYS = ["2d2fcdd026ccdbd21b499af18d130c67ec61481ca6e3c96f08384096580cf3bc"]
+# =====================================================
+# 🔑 API KEYS (ROTATION SYSTEM)
+# =====================================================
+API_KEYS = [
+    "5174fe1283b2cccd4060271c24e7f64285924ff7d873438f90b781a1c4fe6c3b",
+]
 current_key_index = 0
 
 def create_client():
@@ -20,21 +26,41 @@ def create_client():
 
 client = create_client()
 
-# Pinecone Init
-pc = Pinecone(api_key="pcsk_GYubY_MbqWRXd1hqFTyxKq6AtJd5KhjzMQ3bgRpSgTKjihZAuR4RcKCA1AtGTkdQg6yV1")
-index = pc.Index("chapter30-codes")
+# =====================================================
+# 🌲 Pinecone Init
+# =====================================================
+pc = Pinecone(api_key='pcsk_GYubY_MbqWRXd1hqFTyxKq6AtJd5KhjzMQ3bgRpSgTKjihZAuR4RcKCA1AtGTkdQg6yV1')
+index = pc.Index('chapter30-codes')
 
-# Inference function
-def infer_single_row(description, query_vector, model="UCCIX-Mistral-24B"):
+# =====================================================
+# 🔍 Main classify function
+# =====================================================
+def classify(description: str, model="UCCIX-Mistral-24B"):
+    """
+    Input: description (string) of product
+    Output: dict with 'code' and 'justification'
+    """
     global client, current_key_index
 
-    results = index.query(vector=query_vector, top_k=5, include_metadata=True)
+    # For simplicity, we create a fake row dict with 'Embeddings' key
+    # In production, you would convert description to embeddings first
+    row = {
+        "DESCRIPTION_OF_GOODS": description,
+        "Embeddings": get_embedding(description)  # Implement this function
+    }
+
+    # Step 1: Retrieve Top-5 candidates from Pinecone
+    results = index.query(
+        vector=row['Embeddings'],
+        top_k=5,
+        include_metadata=True
+    )
 
     top_5_candidates = []
     for i, match in enumerate(results['matches'], 1):
         code = match['id'].replace('.', '')[0:6]
-        desc = match['metadata'].get('description', 'No description available')
-        top_5_candidates.append(f"{i}. {code}: {desc}")
+        desc_text = match['metadata'].get('description', 'No description available')
+        top_5_candidates.append(f"{i}. {code}: {desc_text}")
 
     top_5_text = "\n".join(top_5_candidates)
 
@@ -50,10 +76,8 @@ CODE: <chosen_code>
 JUSTIFICATION: <short explanation>
 """
 
-    # Simple retry
-    max_retries = len(API_KEYS)
-    retries = 0
-    while retries < max_retries:
+    # Retry loop for key rotation
+    while True:
         try:
             chat_completion = client.chat.completions.create(
                 model=model,
@@ -65,35 +89,62 @@ JUSTIFICATION: <short explanation>
             match = re.search(r"CODE:\s*(\d+)", llm_output)
             predicted_code = match.group(1) if match else None
 
-            return predicted_code, llm_output, top_5_text
+            return {"code": predicted_code, "justification": llm_output}
 
         except Exception as e:
             print(f"⚠️ Error with key {current_key_index+1}: {e}")
             current_key_index += 1
             if current_key_index >= len(API_KEYS):
-                return None, "All API keys failed.", top_5_text
+                raise SystemExit("All API keys failed.")
             client = create_client()
-            retries += 1
             time.sleep(1)
 
-# Routes
+# =====================================================
+# 🔹 Dummy embedding function (replace with your own)
+# =====================================================
+
+# -------------------------------
+def get_embedding(description: str):
+    """
+    Input: product description (string)
+    Output: embedding vector (list of floats)
+    """
+    response = client.embeddings.create(
+        model="cix_chunk_encoder",  # same as your batch encoder
+        input=[description],        # wrap in a list for API
+        encoding_format="float"
+    )
+    
+    # There is only one input, so take the first embedding
+    embedding_vector = response.data[0].embedding
+    return embedding_vector
+
+
+# Allow calls from your frontend
+CORS(app, origins=["https://easyshipai.vercel.app/"], methods=["POST", "OPTIONS"])
+
+# Health check endpoint
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "Flask serverless API is alive!"})
+        return jsonify({"message": "Flask serverless API is alive!"})
 
+# Classification endpoint
 @app.route("/classify", methods=["POST"])
-def classify():
-    try:
-        data = request.json
-        description = data.get("description", "")
-        embeddings = data.get("embeddings", None)
+def classify_endpoint():
+        try:
+            data = request.json
+            description = data.get("description", "").strip()
 
-        if not description or embeddings is None:
-            return jsonify({"error": "Missing 'description' or 'embeddings'"}), 400
+            if not description:
+                return jsonify({"error": "Missing 'description' in request"}), 400
 
-        predicted_code, llm_output, top5 = infer_single_row(description, embeddings)
+            result = classify(description)  # Call your function
+            return jsonify(result)
 
-        return jsonify({"code": predicted_code, "justification": llm_output, "top5": top5})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)
+
