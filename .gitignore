@@ -1,1 +1,30 @@
+# Environment variables
 .env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env/
+ENV/
+
+# VSCode
+.vscode/
+
+# Mac/Linux junk
+.DS_Store
+
+# Logs
+*.log
+
+# Build files
+dist/
+build/
+
+# Pytest
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
